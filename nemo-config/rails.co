@@ -1,0 +1,19 @@
+define flow self check input
+  $allowed = execute self_check_input
+
+  if not $allowed
+    bot inform policy violation
+    stop
+
+define flow check prompt injection
+  $contains_injection = execute action_detect_injection(user_message=$user_message)
+
+  if $contains_injection
+    bot inform injection detected
+    stop
+
+define bot inform policy violation
+  "I'm sorry, that doesn't comply with policy"
+
+define bot inform injection detected
+  "Nice try, I caught that!"

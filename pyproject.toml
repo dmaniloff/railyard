@@ -1,0 +1,24 @@
+[project]
+name = "demo-fsi-bootcamp-toronto"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "docopt>=0.6.2",
+    "dotenv>=0.9.9",
+    "fastapi>=0.128.0",
+    "garak==0.13.3",
+    "loguru>=0.7.3",
+    "nemoguardrails>=0.20.0",
+    "openai>=1.45.0,<2", # provider 'vllm_openai'
+    "transformers>=4.56.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+]
+
+[project.scripts]
+guardrail-server = "guardrail_server:main"
