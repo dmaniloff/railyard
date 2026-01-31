@@ -33,10 +33,7 @@ def create_app():
                         with gr.Tabs():
                             with gr.Tab("config.yaml"):
                                 config_editor = gr.Code(
-                                    value=yaml.dump(
-                                        playground.current_config.model_dump(),
-                                        default_flow_style=False,
-                                    ),
+                                    value=playground.current_config.config_yaml_file_contents,
                                     language="yaml",
                                     label="config.yaml",
                                     lines=40,
@@ -51,7 +48,7 @@ def create_app():
 
                             with gr.Tab("actions.py"):
                                 actions_editor = gr.Code(
-                                    value=playground.current_actions,
+                                    value=playground.current_config.actions_py_file_contents,
                                     language="python",
                                     label="actions.py",
                                     lines=40,
@@ -66,7 +63,7 @@ def create_app():
 
                             with gr.Tab("rails.co"):
                                 rails_editor = gr.Code(
-                                    value=playground.current_rails,
+                                    value=playground.current_config.rails_co_file_contents,
                                     label="rails.co",
                                     lines=40,
                                     max_lines=40,
@@ -162,7 +159,10 @@ def create_app():
                 refresh_probes_btn = gr.Button("🔄 Refresh Status")
 
                 def handle_start_probe_streaming(
-                    probe_type_val, use_guardrails_val, generations_val, parallel_attempts_val
+                    probe_type_val,
+                    use_guardrails_val,
+                    generations_val,
+                    parallel_attempts_val,
                 ):
                     # Use the new streaming method
                     for output in playground.stream_garak_probe_live(
@@ -217,7 +217,7 @@ def create_app():
                 refresh_benchmarks_btn.click(
                     handle_refresh_benchmarks, [], [benchmark_status_display]
                 )
-                
+
                 # Auto-refresh benchmark status every 3 seconds
                 benchmark_timer = gr.Timer(value=3)
                 benchmark_timer.tick(

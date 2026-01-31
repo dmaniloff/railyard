@@ -1,188 +1,142 @@
 import os
 import signal
 import subprocess
+import threading
 import time
-from typing import Any, Dict, List, Iterator
+import uuid
+from dataclasses import dataclass
+from typing import Iterator
 
 
-def run_garak_probe(
-    cmd: List[str], probe_id: str, running_probes: Dict[str, Any]
-) -> None:
-    """Execute a garak probe command with robust process management"""
-    process = None
-    try:
+@dataclass
+class Job:
+    job_id: str
+    job_type: str
+    command: list[str]
+    process: subprocess.Popen[str]
+    started_at: float
+
+    @property
+    def is_running(self) -> bool:
+        return self.process.poll() is None
+
+    @property
+    def exit_code(self) -> int | None:
+        return self.process.poll()
+
+    @property
+    def elapsed_time(self) -> float:
+        return time.time() - self.started_at
+
+    def stream_output(self) -> Iterator[str]:
+        """Stream output lines from this job in real-time"""
+        try:
+            if self.process.stdout:
+                for line in self.process.stdout:
+                    elapsed = self.elapsed_time
+                    yield f"[{elapsed:.1f}s] {line}"
+
+                    # Check for very long running jobs (optional timeout)
+                    if elapsed > 600:  # 10 minutes default timeout
+                        yield f"[{elapsed:.1f}s] ⚠️ Job timed out after 10 minutes\n"
+                        break
+
+            self.process.stdout.close() if self.process.stdout else None
+            return_code = self.process.wait()
+
+            final_elapsed = self.elapsed_time
+            if return_code == 0:
+                yield f"[{final_elapsed:.1f}s] ✅ {self.job_type} completed successfully (exit code: {return_code})\n"
+            else:
+                yield f"[{final_elapsed:.1f}s] ❌ {self.job_type} failed (exit code: {return_code})\n"
+
+        except Exception as e:
+            elapsed = self.elapsed_time
+            yield f"[{elapsed:.1f}s] ❌ Error: {str(e)}\n"
+
+
+class JobManager:
+    # TODO: this has to exist. find a good library.
+    def __init__(self):
+        self._jobs: dict[str, Job] = {}
+        self._lock = threading.Lock()
+
+    def start_job(self, command: list[str], job_type: str) -> Job:
+        """Start a new job with robust process management"""
+        job_id = f"{job_type}_{uuid.uuid4().hex}"
+
         process = subprocess.Popen(
-            cmd,
+            command,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
-            preexec_fn=os.setsid,
+            preexec_fn=os.setsid,  # Create process group for proper cleanup
         )
+
+        job = Job(
+            job_id=job_id,
+            job_type=job_type,
+            command=command,
+            process=process,
+            started_at=time.time(),
+        )
+
+        with self._lock:
+            self._jobs[job_id] = job
+
+        return job
+
+    def get_job(self, job_id: str) -> Job | None:
+        """Get a job by ID"""
+        with self._lock:
+            return self._jobs.get(job_id)
+
+    def stop_job(self, job_id: str, timeout: int = 5) -> bool:
+        """Stop a job with graceful termination then force kill"""
+        job = self.get_job(job_id)
+        if not job or not job.is_running:
+            return False
 
         try:
-            # Stream output line by line for real-time updates
-            output_lines = []
-            start_time = time.time()
-
-            for line in process.stdout:  # type: ignore
-                output_lines.append(line)
-                # Update running status with current output
-                running_probes[probe_id] = {
-                    "status": "running",
-                    "stdout": "".join(output_lines),
-                    "stderr": "",
-                    "returncode": None,
-                }
-
-                # Check timeout
-                if time.time() - start_time > 300:
-                    raise subprocess.TimeoutExpired(cmd, 300)
-
-            process.stdout.close()
-            process.wait()
-
-            # Final completed status
-            running_probes[probe_id] = {
-                "status": "completed",
-                "stdout": "".join(output_lines),
-                "stderr": "",
-                "returncode": process.returncode,
-            }
-        except subprocess.TimeoutExpired:
-            # Kill the entire process group
-            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            # First try SIGTERM on the process group
+            os.killpg(os.getpgid(job.process.pid), signal.SIGTERM)
             try:
-                process.wait(timeout=5)
+                job.process.wait(timeout=timeout)
+                return True
             except subprocess.TimeoutExpired:
-                # Process still running, kill with SIGKILL
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                process.wait()
+                # Force kill with SIGKILL
+                os.killpg(os.getpgid(job.process.pid), signal.SIGKILL)
+                job.process.wait()
+                return True
+        except Exception:
+            # Fallback to regular terminate
+            job.process.terminate()
+            return True
 
-            running_probes[probe_id] = {
-                "status": "timeout",
-                "stdout": "",
-                "stderr": "Probe timed out after 5 minutes",
-                "returncode": -1,
-            }
+    def list_jobs(self) -> list[Job]:
+        """List all jobs"""
+        with self._lock:
+            return list(self._jobs.values())
 
-    except Exception as e:
-        running_probes[probe_id] = {
-            "status": "error",
-            "stdout": "",
-            "stderr": str(e),
-            "returncode": -1,
-        }
-    finally:
-        if process:
-            try:
-                process.terminate()
-            except Exception:
-                pass
+    def cleanup_finished_jobs(self) -> None:
+        """Remove finished jobs from memory"""
+        with self._lock:
+            finished_jobs = [
+                job_id for job_id, job in self._jobs.items() if not job.is_running
+            ]
+            for job_id in finished_jobs:
+                del self._jobs[job_id]
 
+    def get_active_jobs(self) -> list[Job]:
+        """Get list of currently active jobs"""
+        return [job for job in self.list_jobs() if job.is_running]
 
-def stream_garak_probe(cmd: List[str]) -> Iterator[str]:
-    """Execute a garak probe command and yield output lines in real-time"""
-    process = None
-    try:
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            preexec_fn=os.setsid,
-        )
-
-        start_time = time.time()
-        
-        if process.stdout:
-            for line in process.stdout:
-                elapsed = time.time() - start_time
-                yield f"[{elapsed:.1f}s] {line}"
-                
-                # Check timeout
-                if elapsed > 300:  # 5 minutes
-                    yield f"[{elapsed:.1f}s] ⚠️ Probe timed out after 5 minutes\n"
-                    break
-        
-        process.stdout.close() if process.stdout else None
-        return_code = process.wait()
-        
-        final_elapsed = time.time() - start_time
-        if return_code == 0:
-            yield f"[{final_elapsed:.1f}s] ✅ Probe completed successfully (exit code: {return_code})\n"
-        else:
-            yield f"[{final_elapsed:.1f}s] ❌ Probe failed (exit code: {return_code})\n"
-            
-    except Exception as e:
-        elapsed = time.time() - start_time if 'start_time' in locals() else 0
-        yield f"[{elapsed:.1f}s] ❌ Error: {str(e)}\n"
-        
-    finally:
-        if process:
-            try:
-                # Kill process group if still running
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                    process.wait()
-            except Exception:
-                pass
-
-
-def run_guidellm_benchmark(
-    cmd: List[str], benchmark_id: str, running_benchmarks: Dict[str, Any]
-) -> None:
-    """Execute a guidellm benchmark command with robust process management"""
-    process = None
-    try:
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            preexec_fn=os.setsid,
-        )
-
-        try:
-            stdout, stderr = process.communicate(timeout=600)
-            running_benchmarks[benchmark_id] = {
-                "status": "completed",
-                "stdout": stdout,
-                "stderr": stderr or "",
-                "returncode": process.returncode,
-            }
-        except subprocess.TimeoutExpired:
-            # Kill the entire process group
-            os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                # Process still running, kill with SIGKILL
-                os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-                process.wait()
-
-            running_benchmarks[benchmark_id] = {
-                "status": "timeout",
-                "stdout": "",
-                "stderr": "Benchmark timed out after 10 minutes",
-                "returncode": -1,
-            }
-
-    except Exception as e:
-        running_benchmarks[benchmark_id] = {
-            "status": "error",
-            "stdout": "",
-            "stderr": str(e),
-            "returncode": -1,
-        }
-    finally:
-        if process:
-            try:
-                process.terminate()
-            except Exception:
-                pass
+    def stop_all_jobs(self) -> int:
+        """Stop all running jobs, return count of stopped jobs"""
+        jobs = self.get_active_jobs()
+        count = 0
+        for job in jobs:
+            if self.stop_job(job.job_id):
+                count += 1
+        return count
