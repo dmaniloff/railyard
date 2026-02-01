@@ -28,6 +28,11 @@ class Job:
     def elapsed_time(self) -> float:
         return time.time() - self.started_at
 
+    @property
+    def command_display(self) -> str:
+        """Return command as a display string"""
+        return " ".join(self.command)
+
     def stream_output(self) -> Iterator[str]:
         """Stream output lines from this job in real-time"""
         try:
@@ -36,19 +41,10 @@ class Job:
                     elapsed = self.elapsed_time
                     yield f"[{elapsed:.1f}s] {line}"
 
-                    # Check for very long running jobs (optional timeout)
-                    if elapsed > 600:  # 10 minutes default timeout
-                        yield f"[{elapsed:.1f}s] ⚠️ Job timed out after 10 minutes\n"
-                        break
+                self.process.stdout.close()
 
-            self.process.stdout.close() if self.process.stdout else None
+            # Just wait for process to finish, don't yield completion status
             return_code = self.process.wait()
-
-            final_elapsed = self.elapsed_time
-            if return_code == 0:
-                yield f"[{final_elapsed:.1f}s] ✅ {self.job_type} completed successfully (exit code: {return_code})\n"
-            else:
-                yield f"[{final_elapsed:.1f}s] ❌ {self.job_type} failed (exit code: {return_code})\n"
 
         except Exception as e:
             elapsed = self.elapsed_time

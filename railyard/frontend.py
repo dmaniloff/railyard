@@ -154,7 +154,8 @@ def create_app():
 
                 start_probe_btn = gr.Button("🚨 Start Security Probe", variant="stop")
                 probe_status_display = gr.Textbox(
-                    label="Probe Status", interactive=False, lines=20
+                    label="Probe Status", interactive=False, lines=20,
+                    info="Ready to start security probe"
                 )
                 refresh_probes_btn = gr.Button("🔄 Refresh Status")
 
@@ -164,14 +165,33 @@ def create_app():
                     generations_val,
                     parallel_attempts_val,
                 ):
-                    # Use the new streaming method
-                    for output in playground.stream_garak_probe_live(
+                    # Start the job first
+                    job = playground.start_garak_job(
                         probe_type_val,
                         use_guardrails_val,
                         generations_val,
                         parallel_attempts_val,
-                    ):
-                        yield output
+                    )
+                    
+                    # Clear status and update info to show job starting
+                    guardrails_text = "with guardrails" if use_guardrails_val else "without guardrails"
+                    yield gr.update(value="", info=f"🚨 Starting {probe_type_val} probe {guardrails_text}: {job.command_display}")
+                    
+                    try:
+                        # Stream the job output
+                        for output in job.stream_output():
+                            yield output
+                        
+                        # When streaming finishes, check job exit code
+                        exit_code = job.exit_code
+                        if exit_code == 0:
+                            yield gr.update(info=f"✅ {probe_type_val} probe completed successfully")
+                        else:
+                            yield gr.update(info=f"❌ {probe_type_val} probe failed (exit code: {exit_code})")
+                        
+                    except Exception as e:
+                        # If streaming fails, update info to show error
+                        yield gr.update(info=f"❌ {probe_type_val} probe failed: {str(e)}")
 
                 def handle_refresh_probes():
                     return playground.get_probe_status()
@@ -191,37 +211,117 @@ def create_app():
                 gr.Markdown("Measure system performance using GuideLLM benchmarks.")
 
                 with gr.Row():
-                    benchmark_type = gr.Dropdown(
-                        choices=["throughput", "latency"],
+                    benchmark_profile = gr.Dropdown(
+                        choices=["synchronous", "concurrent", "throughput", "constant", "poisson", "sweep"],
                         value="throughput",
-                        label="Benchmark Type",
+                        label="Benchmark Profile",
+                    )
+                
+                with gr.Row():
+                    max_seconds = gr.Slider(
+                        minimum=30, maximum=300, value=60, step=10,
+                        label="Duration (seconds)",
+                        info="How long to run the benchmark"
+                    )
+                    warmup_seconds = gr.Slider(
+                        minimum=0, maximum=60, value=10, step=5,
+                        label="Warmup (seconds)", 
+                        info="Ramp-up period before measuring"
+                    )
+                
+                with gr.Row():
+                    rate = gr.Slider(
+                        minimum=0.1, maximum=50, value=1.0, step=0.1,
+                        label="Request Rate (req/sec)",
+                        info="Requests per second"
+                    )
+                    concurrent_users = gr.Slider(
+                        minimum=1, maximum=20, value=1, step=1,
+                        label="Concurrent Users",
+                        info="Number of parallel users"
+                    )
+                
+                with gr.Row():
+                    max_errors = gr.Slider(
+                        minimum=1, maximum=20, value=5, step=1,
+                        label="Max Errors",
+                        info="Stop benchmark after this many errors"
                     )
 
                 start_benchmark_btn = gr.Button(
                     "📊 Start Performance Benchmark", variant="primary"
                 )
                 benchmark_status_display = gr.Textbox(
-                    label="Benchmark Status", interactive=False, lines=20
+                    label="Benchmark Status", interactive=False, lines=20,
+                    info="Ready to start benchmark"
                 )
-                refresh_benchmarks_btn = gr.Button("🔄 Refresh Status")
 
-                def handle_start_benchmark(bench_type):
-                    return playground.start_performance_benchmark(bench_type)
+                def handle_start_benchmark_streaming(profile, max_sec, warmup_sec, req_rate, users, errors):
+                    """Stream benchmark output in real-time"""
+                    # Start the job first
+                    job = playground.start_guidellm_job(
+                        profile, max_sec, warmup_sec, req_rate, users, errors
+                    )
+                    
+                    # Clear status and update info to show job starting
+                    yield gr.update(value="", info=f"🚀 Starting {profile} benchmark: {job.command_display}")
+                    
+                    try:
+                        # Stream the job output
+                        for output in job.stream_output():
+                            yield output
+                        
+                        # When streaming finishes, check job exit code
+                        exit_code = job.exit_code
+                        if exit_code == 0:
+                            yield gr.update(info=f"✅ {profile} benchmark completed successfully")
+                        else:
+                            yield gr.update(info=f"❌ {profile} benchmark failed (exit code: {exit_code})")
+                        
+                    except Exception as e:
+                        # If streaming fails, update info to show error
+                        yield gr.update(info=f"❌ {profile} benchmark failed: {str(e)}")
+                
+                def update_config_visibility(profile):
+                    """Update which configs are relevant based on benchmark profile"""
+                    if profile == "synchronous":
+                        return {
+                            rate: gr.update(interactive=False, value=1.0),
+                            concurrent_users: gr.update(interactive=False, value=1),
+                        }
+                    elif profile == "concurrent":
+                        return {
+                            rate: gr.update(interactive=False, value=1.0),
+                            concurrent_users: gr.update(interactive=True),
+                        }
+                    elif profile == "throughput":
+                        return {
+                            rate: gr.update(interactive=False, value=50.0),
+                            concurrent_users: gr.update(interactive=True),
+                        }
+                    elif profile in ["constant", "poisson"]:
+                        return {
+                            rate: gr.update(interactive=True),
+                            concurrent_users: gr.update(interactive=False, value=1),
+                        }
+                    else:  # sweep
+                        return {
+                            rate: gr.update(interactive=False, value=1.0),
+                            concurrent_users: gr.update(interactive=True),
+                        }
 
-                def handle_refresh_benchmarks():
-                    return playground.get_benchmark_status()
-
+                # Update config visibility when profile changes
+                benchmark_profile.change(
+                    update_config_visibility,
+                    [benchmark_profile],
+                    [rate, concurrent_users]
+                )
+                
                 start_benchmark_btn.click(
-                    handle_start_benchmark, [benchmark_type], [benchmark_status_display]
-                )
-                refresh_benchmarks_btn.click(
-                    handle_refresh_benchmarks, [], [benchmark_status_display]
+                    handle_start_benchmark_streaming, 
+                    [benchmark_profile, max_seconds, warmup_seconds, rate, concurrent_users, max_errors], 
+                    [benchmark_status_display]
                 )
 
-                # Auto-refresh benchmark status every 3 seconds
-                benchmark_timer = gr.Timer(value=3)
-                benchmark_timer.tick(
-                    handle_refresh_benchmarks, [], [benchmark_status_display]
-                )
 
     return app

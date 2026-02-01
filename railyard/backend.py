@@ -13,7 +13,7 @@ from nemoguardrails.rails.llm.config import RailsConfig
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
-from .ejecutor import JobManager
+from .ejecutor import Job, JobManager
 
 
 class ModelParameters(BaseModel):
@@ -243,76 +243,66 @@ define flow check prompt injection
         except Exception as e:
             return f"❌ Error updating rails: {str(e)}"
 
-    def stream_garak_probe_live(
+    def start_garak_job(
         self,
         probe_type: str,
         use_guardrails: bool,
         generations: int = 1,
         parallel_attempts: int = 1,
-    ):
-        """Stream garak probe output in real-time to Gradio"""
+    ) -> Job:
+        """Start a garak probe job and return the job object"""
         config_snapshot = self._snapshot_guardrails_state()
+
+        # Base command common to both guardrailed and unguarded
+        cmd = [
+            "uv",
+            "run",
+            "dotenv",
+            "run",
+            "--",
+            "garak",
+            "--narrow_output",
+            "--generations",
+            str(generations),
+            "--parallel_attempts",
+            str(parallel_attempts),
+            "--probes",
+            probe_type,
+        ]
 
         if use_guardrails:
             # Create temporary config with current settings
-            with tempfile.TemporaryDirectory() as temp_dir:
-                config_path = Path(temp_dir) / "config.yaml"
-                rails_path = Path(temp_dir) / "rails.co"
-                actions_path = Path(temp_dir) / "actions.py"
+            temp_dir = tempfile.mkdtemp()
+            config_path = Path(temp_dir) / "config.yaml"
+            rails_path = Path(temp_dir) / "rails.co"
+            actions_path = Path(temp_dir) / "actions.py"
 
-                # Write config files
-                with open(config_path, "w") as f:
-                    yaml.dump(config_snapshot.model_dump(), f)
+            # Write config files
+            with open(config_path, "w") as f:
+                yaml.dump(config_snapshot.model_dump(), f)
 
-                # Write rails and actions from current content
-                with open(rails_path, "w") as f:
-                    f.write(config_snapshot.rails_co_file_contents)
+            # Write rails and actions from current content
+            with open(rails_path, "w") as f:
+                f.write(config_snapshot.rails_co_file_contents)
 
-                with open(actions_path, "w") as f:
-                    f.write(config_snapshot.actions_py_file_contents)
+            with open(actions_path, "w") as f:
+                f.write(config_snapshot.actions_py_file_contents)
 
-                cmd = [
-                    "uv",
-                    "run",
-                    "dotenv",
-                    "run",
-                    "--",
-                    "garak",
-                    "--narrow_output",
-                    "--target_type",
-                    "guardrails",
-                    "--target_name",
-                    str(temp_dir),
-                    "--generations",
-                    str(generations),
-                    "--parallel_attempts",
-                    str(parallel_attempts),
-                    "--probes",
-                    probe_type,
-                ]
-
-                # Stream the output directly
-                job = self.job_manager.start_job(cmd, "garak_probe")
-                try:
-                    for output_line in job.stream_output():
-                        yield output_line
-                finally:
-                    # Cleanup finished jobs
-                    self.job_manager.cleanup_finished_jobs()
+            # Add guardrails-specific options
+            cmd.extend([
+                "--target_type",
+                "guardrails",
+                "--target_name",
+                str(temp_dir),
+            ])
         else:
             # Get model config from config snapshot
             model_config = config_snapshot.main_model
             api_base = model_config.parameters.openai_api_base
             model_name = model_config.parameters.model_name
 
-            cmd = [
-                "uv",
-                "run",
-                "dotenv",
-                "run",
-                "--",
-                "garak",
-                "--narrow_output",
+            # Add unguarded model-specific options
+            cmd.extend([
                 "--target_type",
                 "openai.OpenAICompatible",
                 "--target_name",
@@ -325,25 +315,21 @@ define flow check prompt injection
                         }
                     }
                 ),
-                "--generations",
-                str(generations),
-                "--parallel_attempts",
-                str(parallel_attempts),
-                "--probes",
-                probe_type,
-            ]
+            ])
 
-            # Stream the output directly
-            job = self.job_manager.start_job(cmd, "garak_probe")
-            try:
-                for output_line in job.stream_output():
-                    yield output_line
-            finally:
-                # Cleanup finished jobs
-                self.job_manager.cleanup_finished_jobs()
+        # Start job and return it
+        return self.job_manager.start_job(cmd, "garak_probe")
 
-    def start_performance_benchmark(self, benchmark_type: str) -> str:
-        """Start a performance benchmark using guidellm"""
+    def start_guidellm_job(
+        self,
+        benchmark_profile: str,
+        max_seconds: int = 60,
+        warmup_seconds: int = 10,
+        rate: float = 1.0,
+        concurrent_users: int = 1,
+        max_errors: int = 5,
+    ) -> Job:
+        """Start a GuideLLM benchmark job and return the job object"""
         config_snapshot = self._snapshot_guardrails_state()
 
         # Get model config from snapshot
@@ -351,35 +337,54 @@ define flow check prompt injection
         api_base = model_config.parameters.openai_api_base
         model_name = model_config.parameters.model_name
 
-        if benchmark_type == "throughput":
-            cmd = [
-                "guidellm",
-                "--target",
-                f"{api_base}/v1",
-                "--model",
-                model_name,
-                "--data-type",
-                "synthetic",
-                "--max-requests",
-                "100",
-            ]
-        else:  # latency
-            cmd = [
-                "guidellm",
-                "--target",
-                f"{api_base}/v1",
-                "--model",
-                model_name,
-                "--data-type",
-                "synthetic",
-                "--max-requests",
-                "10",
-                "--request-rate",
-                "1",
-            ]
+        # Base command - API key will be loaded from .env via GUIDELLM_BACKEND_KWARGS
+        cmd = [
+            "uv",
+            "run",
+            "dotenv",
+            "run",
+            "--",
+            "guidellm",
+            "benchmark",
+            "run",
+            "--target",
+            api_base,
+            "--model",
+            model_name,
+            "--data",
+            "sample_prompts.jsonl",
+            "--max-seconds",
+            str(max_seconds),
+            "--max-errors",
+            str(max_errors),
+        ]
 
-        job = self.job_manager.start_job(cmd, "guidellm_benchmark")
-        return f"📊 Started benchmark {job.job_id}"
+        # Add warmup if specified
+        if warmup_seconds > 0:
+            cmd.extend(["--warmup", str(warmup_seconds)])
+
+        # Add profile-specific parameters
+        if benchmark_profile == "synchronous":
+            cmd.extend(["--profile", "synchronous"])
+        elif benchmark_profile == "concurrent":
+            cmd.extend(
+                ["--profile", "concurrent", "--rate", str(concurrent_users)]
+            )
+        elif benchmark_profile == "throughput":
+            cmd.extend(
+                ["--profile", "throughput", "--rate", str(concurrent_users)]
+            )
+        elif benchmark_profile == "constant":
+            cmd.extend(["--profile", "constant", "--rate", str(rate)])
+        elif benchmark_profile == "poisson":
+            cmd.extend(["--profile", "poisson", "--rate", str(rate)])
+        elif benchmark_profile == "sweep":
+            cmd.extend(
+                ["--profile", "sweep", "--rate", str(concurrent_users)]
+            )
+
+        # Start job and return it
+        return self.job_manager.start_job(cmd, "guidellm_benchmark")
 
     def get_probe_status(self) -> str:
         """Get status of running probes"""
