@@ -13,7 +13,7 @@ from nemoguardrails.rails.llm.config import RailsConfig
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
-from .ejecutor import Job, JobManager
+from .ejecutor import GarakJob, Job, JobManager
 
 
 class ModelParameters(BaseModel):
@@ -253,6 +253,9 @@ define flow check prompt injection
         """Start a garak probe job and return the job object"""
         config_snapshot = self._snapshot_guardrails_state()
 
+        reports_dir = tempfile.mkdtemp(prefix="garak_reports_")
+        report_prefix = str(Path(reports_dir) / "probe_report")
+
         # Base command common to both guardrailed and unguarded
         cmd = [
             "uv",
@@ -268,6 +271,8 @@ define flow check prompt injection
             str(parallel_attempts),
             "--probes",
             probe_type,
+            "--report_prefix",
+            report_prefix,
         ]
 
         if use_guardrails:
@@ -277,48 +282,63 @@ define flow check prompt injection
             rails_path = Path(temp_dir) / "rails.co"
             actions_path = Path(temp_dir) / "actions.py"
 
-            # Write config files
             with open(config_path, "w") as f:
                 yaml.dump(config_snapshot.model_dump(), f)
 
-            # Write rails and actions from current content
             with open(rails_path, "w") as f:
                 f.write(config_snapshot.rails_co_file_contents)
 
             with open(actions_path, "w") as f:
                 f.write(config_snapshot.actions_py_file_contents)
 
-            # Add guardrails-specific options
-            cmd.extend([
-                "--target_type",
-                "guardrails",
-                "--target_name",
-                str(temp_dir),
-            ])
+            cmd.extend(
+                [
+                    "--target_type",
+                    "guardrails",
+                    "--target_name",
+                    str(temp_dir),
+                ]
+            )
         else:
-            # Get model config from config snapshot
             model_config = config_snapshot.main_model
             api_base = model_config.parameters.openai_api_base
             model_name = model_config.parameters.model_name
 
-            # Add unguarded model-specific options
-            cmd.extend([
-                "--target_type",
-                "openai.OpenAICompatible",
-                "--target_name",
-                model_name,
-                "--generator_options",
-                json.dumps(
-                    {
-                        "openai": {
-                            "OpenAICompatible": {"uri": api_base, "model": model_name}
+            cmd.extend(
+                [
+                    "--target_type",
+                    "openai.OpenAICompatible",
+                    "--target_name",
+                    model_name,
+                    "--generator_options",
+                    json.dumps(
+                        {
+                            "openai": {
+                                "OpenAICompatible": {
+                                    "uri": api_base,
+                                    "model": model_name,
+                                }
+                            }
                         }
-                    }
-                ),
-            ])
+                    ),
+                ]
+            )
 
-        # Start job and return it
-        return self.job_manager.start_job(cmd, "garak_probe")
+        # Create GarakJob object
+        import uuid
+
+        job_id = f"garak_probe_{uuid.uuid4().hex}"
+
+        garak_job = GarakJob(
+            job_id=job_id,
+            command=cmd,
+            probe_type=probe_type,
+            use_guardrails=use_guardrails,
+            reports_dir=Path(reports_dir),
+        )
+
+        # Start job
+        return self.job_manager.start_job(garak_job)
 
     def start_guidellm_job(
         self,
