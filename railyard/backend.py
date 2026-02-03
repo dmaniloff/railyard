@@ -232,6 +232,7 @@ define flow check prompt injection
         use_guardrails: bool,
         generations: int = 1,
         parallel_attempts: int = 1,
+        prompt_cap: int = 10,
     ) -> Job:
         """Start a garak probe job and return the job object"""
         config_snapshot = self._snapshot_guardrails_state()
@@ -239,7 +240,27 @@ define flow check prompt injection
         reports_dir = tempfile.mkdtemp(prefix="garak_reports_")
         report_prefix = str(Path(reports_dir) / "probe_report")
 
-        # Base command common to both guardrailed and unguarded
+        # Create garak config dict
+        garak_config = {
+            "system": {
+                "narrow_output": True,
+                "parallel_attempts": parallel_attempts,
+                "lite": True,
+            },
+            "run": {
+                "generations": generations,
+                "soft_probe_prompt_cap": prompt_cap,
+            },
+        }
+
+        # Create temporary garak config file
+        garak_config_dir = tempfile.mkdtemp(prefix="garak_config_")
+        garak_config_path = Path(garak_config_dir) / "config.yaml"
+        
+        with open(garak_config_path, "w") as f:
+            yaml.dump(garak_config, f)
+
+        # Base command using config file
         cmd = [
             "uv",
             "run",
@@ -247,11 +268,8 @@ define flow check prompt injection
             "run",
             "--",
             "garak",
-            "--narrow_output",
-            "--generations",
-            str(generations),
-            "--parallel_attempts",
-            str(parallel_attempts),
+            "--config",
+            str(garak_config_path),
             "--probes",
             probe_type,
             "--report_prefix",
@@ -259,7 +277,7 @@ define flow check prompt injection
         ]
 
         if use_guardrails:
-            # Create temporary config with current settings
+            # Create temporary nemo guardrails config
             temp_dir = tempfile.mkdtemp()
             config_path = Path(temp_dir) / "config.yaml"
             rails_path = Path(temp_dir) / "rails.co"

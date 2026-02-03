@@ -180,6 +180,15 @@ def create_app():
                         info="How many probe attempts to launch in parallel",
                     )
 
+                    prompt_cap = gr.Slider(
+                        minimum=1,
+                        maximum=100,
+                        value=10,
+                        step=1,
+                        label="Prompt Cap",
+                        info="Maximum number of prompts to test per probe",
+                    )
+
                 start_probe_btn = gr.Button("🚨 Start Security Probe", variant="stop")
                 last_probe_job_id = gr.Textbox(
                     value="", interactive=False, visible=False
@@ -206,12 +215,14 @@ def create_app():
                     use_guardrails_val,
                     generations_val,
                     parallel_attempts_val,
+                    prompt_cap_val,
                 ):
                     job = playground.start_garak_job(
                         probe_type_val,
                         use_guardrails_val,
                         generations_val,
                         parallel_attempts_val,
+                        prompt_cap_val,
                     )
 
                     # Update info to show job starting
@@ -271,15 +282,37 @@ def create_app():
                             for row in history
                         ]
 
+                def load_probe_history():
+                    """Load existing probe history on app load/tab switch"""
+                    history = playground.probe_history
+                    if history:
+                        return [
+                            [
+                                row[value]
+                                for value in playground.probe_history_headers.values()
+                            ]
+                            for row in history
+                        ]
+                    return []
+
                 start_probe_btn.click(
                     handle_start_probe_streaming,
-                    [probe_type, use_guardrails, generations, parallel_attempts],
+                    [
+                        probe_type,
+                        use_guardrails,
+                        generations,
+                        parallel_attempts,
+                        prompt_cap,
+                    ],
                     [probe_status_display, last_probe_job_id],
                 ).then(
                     handle_history_probes_update,
                     [last_probe_job_id],
                     [probe_history_table],
                 )
+
+                # Load probe history when the red tab is selected
+                red_tab.select(load_probe_history, outputs=[probe_history_table])
 
             # Blue Section - Performance Testing
             with gr.Tab("🔵 Performance Testing") as blue_tab:
@@ -438,5 +471,8 @@ def create_app():
                     ],
                     [benchmark_status_display],
                 )
+
+        # Load probe history when the app first loads
+        app.load(load_probe_history, outputs=[probe_history_table])
 
     return app
