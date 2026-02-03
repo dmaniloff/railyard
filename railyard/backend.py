@@ -2,11 +2,10 @@ import json
 import os
 import tempfile
 import threading
-import traceback
+from collections import OrderedDict
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict, List
 
-import gradio as gr
 import yaml
 from nemoguardrails import LLMRails
 from nemoguardrails.rails.llm.config import RailsConfig
@@ -31,6 +30,7 @@ class ModelConfig(BaseModel):
 class BackendConfig(BaseModel):
     models: list[ModelConfig]
     rails: dict[str, Any] = Field(default_factory=dict)
+    prompts: list[dict[str, Any]] = Field(default_factory=list)
     rails_co_file_contents: str = ""
     actions_py_file_contents: str = ""
 
@@ -51,8 +51,19 @@ class BackendConfig(BaseModel):
         yaml_dict = {
             "models": [model.model_dump() for model in self.models],
             "rails": self.rails,
+            "prompts": self.prompts,
         }
-        return yaml.dump(yaml_dict, default_flow_style=False)
+
+        def str_presenter(dumper, data):
+            if "\n" in data:
+                return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+            return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+        yaml.add_representer(str, str_presenter)
+        result = yaml.dump(yaml_dict, default_flow_style=False)
+        # Reset the representer to avoid affecting other YAML operations
+        yaml.add_representer(str, yaml.representer.SafeRepresenter.represent_str)
+        return result
 
 
 class GuardrailPlayground:
@@ -61,6 +72,18 @@ class GuardrailPlayground:
         self.rails_instance = None
         self.job_manager = JobManager()
         self._config_lock = threading.Lock()
+        # Store for probe history
+        self.probe_history: List[Dict[str, Any]] = []
+        self.history_lock = threading.Lock()
+        self.probe_history_headers = OrderedDict(
+            [
+                ("Started At", "started_at"),
+                ("Duration", "duration"),
+                ("Probe Type", "probe_type"),
+                ("Guardrails", "guardrails"),
+                ("Success Rate", "success_rate"),
+            ]
+        )
 
     def load_default_config(self) -> BackendConfig:
         """Return a basic default config"""
@@ -73,7 +96,13 @@ class GuardrailPlayground:
         rails_contents = self.load_default_rails()
         return BackendConfig(
             models=[model],
-            rails={"input": {"flows": ["check prompt injection"]}},
+            rails={"input": {"flows": ["check prompt injection", "self check input"]}},
+            prompts=[
+                {
+                    "task": "self_check_input",
+                    "content": 'Your task is to check if the user message below complies with policy.\nPolicy:\n- No questions about the weather\n\nUser message: "{{ user_input }}"\n\nShould this message be blocked? Answer Yes or No.\nAnswer:',
+                }
+            ],
             rails_co_file_contents=rails_contents,
             actions_py_file_contents=actions_contents,
         )
@@ -121,127 +150,81 @@ define flow check prompt injection
         with self._config_lock:
             return self.current_config.model_copy(deep=True)
 
-    async def chat_with_guardrails(
-        self, message: str, history: list
-    ) -> tuple[str, list]:
+    def chat_with_guardrails(self, messages: list[dict]) -> str | None:
         """Chat with the guardrailed model"""
-        try:
-            config_snapshot = self._snapshot_guardrails_state()
-            # Create temporary config with current settings
-            with tempfile.TemporaryDirectory() as temp_dir:
-                config_path = Path(temp_dir) / "config.yaml"
-                rails_path = Path(temp_dir) / "rails.co"
-                actions_path = Path(temp_dir) / "actions.py"
+        config_snapshot = self._snapshot_guardrails_state()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            config_path = Path(temp_dir) / "config.yaml"
+            rails_path = Path(temp_dir) / "rails.co"
+            actions_path = Path(temp_dir) / "actions.py"
 
-                # Write config files
-                with open(config_path, "w") as f:
-                    yaml.dump(config_snapshot.model_dump(), f)
+            with open(config_path, "w") as f:
+                yaml.dump(config_snapshot.model_dump(), f)
 
-                # Write rails and actions from current content
-                with open(rails_path, "w") as f:
-                    f.write(config_snapshot.rails_co_file_contents)
+            with open(rails_path, "w") as f:
+                f.write(config_snapshot.rails_co_file_contents)
 
-                with open(actions_path, "w") as f:
-                    f.write(config_snapshot.actions_py_file_contents)
+            with open(actions_path, "w") as f:
+                f.write(config_snapshot.actions_py_file_contents)
 
-                # Initialize rails
-                config = RailsConfig.from_path(str(temp_dir))
-                rails = LLMRails(config)
+            config = RailsConfig.from_path(str(temp_dir))
+            rails = LLMRails(config)
+            response = rails.generate(
+                messages=[messages[-1]]
+            )  # TODO: temporary hack to avoid UtteranceBotAction assertion errors
+            return response.get("content")
 
-                # Generate response
-                response = await rails.generate_async(message)
-
-                history.append(gr.ChatMessage(role="user", content=message))
-                history.append(gr.ChatMessage(role="assistant", content=response))
-                return "", history
-
-        except Exception as e:
-            error_msg = f"Error: {str(e)}"
-            history.append(gr.ChatMessage(role="user", content=message))
-            history.append(gr.ChatMessage(role="assistant", content=error_msg))
-            return "", history
-
-    async def chat_without_guardrails(
-        self, message: str, history: list[gr.ChatMessage]
-    ) -> tuple[str, list[gr.ChatMessage]]:
+    def chat_without_guardrails(self, messages: list[dict]) -> str | None:
         """Chat directly with the model without guardrails"""
-        try:
-            # Create OpenAI client using environment variables
-            client = OpenAI(
-                api_key=os.getenv("LITELLM_API_KEY"),
-                base_url=os.getenv("LITELLM_API_URL"),
-            )
+        config_snapshot = self._snapshot_guardrails_state()
+        client = OpenAI(
+            api_key=os.getenv("LITELLM_API_KEY"),
+            base_url=os.getenv("LITELLM_API_URL"),
+        )
 
-            # Convert history to OpenAI format and add current message
-            messages = []
-            for msg in history:
-                if hasattr(msg, "role"):  # gr.ChatMessage object
-                    messages.append({"role": msg.role, "content": msg.content})
-                else:  # dict object
-                    messages.append(msg)
-            messages.append({"role": "user", "content": message})
+        response = client.chat.completions.create(
+            model=config_snapshot.main_model.parameters.model_name,
+            messages=[
+                messages[-1]
+            ],  # TODO: also a hack here to avoid dealing w/ potentially non-alternating message roles
+            max_tokens=1000,
+        )
+        assistant_response = response.choices[0].message.content
+        return assistant_response
 
-            # Get model name from current config
-            with self._config_lock:
-                model_name = self.current_config.main_model.parameters.model_name
-
-            # Make direct API call
-            response = client.chat.completions.create(
-                model=model_name, messages=messages, max_tokens=1000
-            )
-
-            assistant_response = response.choices[0].message.content
-
-            history.append(gr.ChatMessage(role="user", content=message))
-            history.append(gr.ChatMessage(role="assistant", content=assistant_response))
-            return "", history
-
-        except Exception as e:
-            error_msg = f"Error (no guardrails): {str(e)}\n\nFull traceback:\n{traceback.format_exc()}"
-            history.append(gr.ChatMessage(role="user", content=message))
-            history.append(gr.ChatMessage(role="assistant", content=error_msg))
-            return "", history
-
-    def update_config(self, config_text: str) -> str:
+    def update_config(self, config_text: str) -> None:
         """Update the guardrail configuration"""
-        try:
-            config_dict = yaml.safe_load(config_text)
-            if not isinstance(config_dict, dict):
-                return "❌ Error updating config: config must be a YAML mapping"
-            required_keys = {"models", "rails"}
-            if required_keys != set(config_dict.keys()):
-                return f"❌ Error updating config: required keys are {required_keys}, but got {set(config_dict.keys())}"
-            with self._config_lock:
-                self.current_config.models = [
-                    ModelConfig(**model) for model in config_dict["models"]
-                ]
-                self.current_config.rails = config_dict["rails"]
-            return "✅ Configuration updated successfully"
-        except Exception as e:
-            return f"❌ Error updating config: {str(e)}"
 
-    def update_actions(self, actions_text: str) -> str:
+        config_dict = yaml.safe_load(config_text)
+        if not isinstance(config_dict, dict):
+            raise ValueError("Config must be a YAML mapping")
+
+        required_keys = {"models", "rails"}
+        if not required_keys <= set(config_dict.keys()):
+            raise ValueError(
+                f"Required keys are {required_keys}, but got {set(config_dict.keys())}"
+            )
+
+        with self._config_lock:
+            self.current_config.models = [
+                ModelConfig(**model) for model in config_dict["models"]
+            ]
+            self.current_config.rails = config_dict["rails"]
+
+    def update_actions(self, actions_text: str) -> None:
         """Update the actions.py content"""
-        try:
-            # Basic syntax check by compiling
-            compile(actions_text, "actions.py", "exec")
-            with self._config_lock:
-                self.current_config.actions_py_file_contents = actions_text
-            return "✅ Actions updated successfully"
-        except Exception as e:
-            return f"❌ Error updating actions: {str(e)}"
+        # Basic syntax check by compiling
+        compile(actions_text, "actions.py", "exec")
+        with self._config_lock:
+            self.current_config.actions_py_file_contents = actions_text
 
-    def update_rails(self, rails_text: str) -> str:
+    def update_rails(self, rails_text: str) -> None:
         """Update the rails.co content"""
-        try:
-            # Basic validation - just check it's not empty
-            if not rails_text.strip():
-                return "❌ Rails content cannot be empty"
-            with self._config_lock:
-                self.current_config.rails_co_file_contents = rails_text
-            return "✅ Rails updated successfully"
-        except Exception as e:
-            return f"❌ Error updating rails: {str(e)}"
+        # Basic validation - just check it's not empty
+        if not rails_text.strip():
+            raise ValueError("Rails content cannot be empty")
+        with self._config_lock:
+            self.current_config.rails_co_file_contents = rails_text
 
     def start_garak_job(
         self,
@@ -340,6 +323,18 @@ define flow check prompt injection
         # Start job
         return self.job_manager.start_job(garak_job)
 
+    def update_probe_history(self, job_id: str) -> List[Dict[str, Any]]:
+        """Update probe history with completed job results and return current history"""
+        job = self.job_manager.get_job(job_id)
+        if job and job.exit_code == 0 and hasattr(job, "callback"):
+            stats_row = job.callback()
+            if stats_row:
+                with self.history_lock:
+                    self.probe_history.append(stats_row)
+
+        with self.history_lock:
+            return self.probe_history
+
     def start_guidellm_job(
         self,
         benchmark_profile: str,
@@ -387,55 +382,15 @@ define flow check prompt injection
         if benchmark_profile == "synchronous":
             cmd.extend(["--profile", "synchronous"])
         elif benchmark_profile == "concurrent":
-            cmd.extend(
-                ["--profile", "concurrent", "--rate", str(concurrent_users)]
-            )
+            cmd.extend(["--profile", "concurrent", "--rate", str(concurrent_users)])
         elif benchmark_profile == "throughput":
-            cmd.extend(
-                ["--profile", "throughput", "--rate", str(concurrent_users)]
-            )
+            cmd.extend(["--profile", "throughput", "--rate", str(concurrent_users)])
         elif benchmark_profile == "constant":
             cmd.extend(["--profile", "constant", "--rate", str(rate)])
         elif benchmark_profile == "poisson":
             cmd.extend(["--profile", "poisson", "--rate", str(rate)])
         elif benchmark_profile == "sweep":
-            cmd.extend(
-                ["--profile", "sweep", "--rate", str(concurrent_users)]
-            )
+            cmd.extend(["--profile", "sweep", "--rate", str(concurrent_users)])
 
         # Start job and return it
         return self.job_manager.start_job(cmd, "guidellm_benchmark")
-
-    def get_probe_status(self) -> str:
-        """Get status of running probes"""
-        return self.get_active_jobs_status()
-
-    def get_benchmark_status(self) -> str:
-        """Get status of running benchmarks"""
-        return self.get_active_jobs_status()
-
-    def get_active_jobs_status(self) -> str:
-        """Get status of all active jobs managed by JobManager"""
-        jobs = self.job_manager.get_active_jobs()
-        if not jobs:
-            return "No active jobs"
-
-        status_lines = []
-        for job in jobs:
-            elapsed = job.elapsed_time
-            if job.is_running:
-                status_lines.append(
-                    f"🟡 {job.job_id} ({job.job_type}): Running for {elapsed:.1f}s"
-                )
-            else:
-                exit_code = job.exit_code or 0
-                if exit_code == 0:
-                    status_lines.append(
-                        f"✅ {job.job_id} ({job.job_type}): Completed successfully"
-                    )
-                else:
-                    status_lines.append(
-                        f"❌ {job.job_id} ({job.job_type}): Failed (exit code {exit_code})"
-                    )
-
-        return "\n".join(status_lines)
