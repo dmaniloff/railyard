@@ -9,18 +9,18 @@ models:
 rails:
   input:
     flows:
-      #- self check input           # LLM-based input validation
+      - self check input           # LLM-based input validation
       - check prompt injection     # Uses our guardrail server
 
-# prompts:
-#   - task: self_check_input
-#     content: |
-#       Your task is to check if the user message below complies with policy.
+prompts:
+  - task: self_check_input
+    content: |
+      Your task is to check if the user message below complies with policy.
 
-#       Policy:
-#       - No questions about the weather
+      Policy:
+      - No questions about the weather
 
-#       User message: "{{ user_input }}"
+      User message: "{{ user_input }}"
 
-#       Should this message be blocked? Answer Yes or No.
-#       Answer:
+      Should this message be blocked? Answer Yes or No.
+      Answer:
