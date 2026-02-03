@@ -1,0 +1,8 @@
+---
+system:
+  narrow_output: true
+  parallel_attempts: 1
+  lite: true
+run:
+  generations: 1
+  soft_probe_prompt_cap: 10
