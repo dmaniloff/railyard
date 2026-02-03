@@ -1,4 +1,3 @@
-import json
 import os
 import signal
 import subprocess
@@ -9,6 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
+import pandas as pd
 from pydantic import BaseModel, ConfigDict
 
 
@@ -75,91 +75,55 @@ class GarakJob(Job):
     def _parse_garak_reports(self) -> dict[str, Any] | None:
         """Parse garak report files and extract basic statistics"""
         jsonl_files = list(self.reports_dir.glob("*.report.jsonl"))
+        jsonl_file = jsonl_files[0] if jsonl_files else None
+        html_files = list(self.reports_dir.glob("*.report.html"))
+        html_file = html_files[0] if html_files else None
 
         if not jsonl_files:
             return None
 
-        main_report_file = jsonl_files[0]
+        # Read JSONL file using pandas
+        df = pd.read_json(jsonl_file, lines=True)
 
-        total_prompts = 0
-        successful_attacks = 0
-        failed_attacks = 0
-        errors = 0
+        # Filter for final attempt entries (status 2 = final result with detector analysis)
+        attempts = df[(df["entry_type"] == "attempt") & (df["status"] == 2)]
 
-        with open(main_report_file, "r") as f:
-            # JSONL format - each line is a JSON object
-            for line in f:
-                if line.strip():
-                    try:
-                        data = json.loads(line.strip())
-                        # Only count final attempt entries (status 2 = final result with detector analysis)
-                        if (
-                            data.get("entry_type") == "attempt"
-                            and data.get("status") == 2
-                        ):
-                            total_prompts += 1
-                            # Check if the attack succeeded by looking at detector results
-                            detector_results = data.get("detector_results", {})
-                            if detector_results:
-                                # If there are detector results, check if any detected the attack (value > 0)
-                                detected = any(
-                                    any(score > 0 for score in scores)
-                                    for scores in detector_results.values()
-                                    if isinstance(scores, list)
-                                )
-                                if detected:
-                                    failed_attacks += 1  # Attack was detected/blocked
-                                else:
-                                    successful_attacks += 1  # Attack succeeded
-                            else:
-                                # No detector results usually means the attack wasn't detected
-                                successful_attacks += 1
-                    except json.JSONDecodeError:
-                        errors += 1
+        total_prompts = len(attempts)
+        if total_prompts == 0:
+            return None
 
-        # Calculate success rate
+        # Vectorized approach: apply function to check if any detector score > 0
+        def has_successful_attack(detector_results):
+            if not detector_results:
+                return False
+            return any(
+                any(score > 0 for score in scores if isinstance(scores, list))
+                for scores in detector_results.values()
+            )
+
+        # Apply the function to all detector_results
+        successful_mask = attempts["detector_results"].apply(has_successful_attack)
+        successful_attacks = successful_mask.sum()
+        failed_attacks = total_prompts - successful_attacks
+
         success_rate = (
             (successful_attacks / total_prompts * 100) if total_prompts > 0 else 0.0
         )
 
-        # Calculate a basic score (lower is better for security)
-        score = f"{success_rate:.1f}%"
-
-        # Find both report files for download
-        jsonl_file = main_report_file
-        html_files = list(self.reports_dir.glob("*.report.html"))
-        html_file = html_files[0] if html_files else None
-
         return {
-            "total_prompts": total_prompts,
-            "successful_attacks": successful_attacks,
-            "failed_attacks": failed_attacks,
-            "errors": errors,
-            "success_rate": f"{success_rate:.1f}%",
-            "score": score,
-            "jsonl_file": str(jsonl_file),
-            "html_file": str(html_file) if html_file else None,
+            "started_at": self.started_at,
+            "duration": f"{self.elapsed_time:.1f}s",
+            "probe_type": self.probe_type,
+            "guardrails": "Yes" if self.use_guardrails else "No",
+            "success_rate": f"{success_rate:.1f} %",
+            # "jsonl_file": str(jsonl_file),
+            # "html_file": str(html_file) if html_file else "N/A",
         }
 
     def callback(self) -> dict[str, Any] | None:
         """Return a probe summary after job completion."""
         if self.exit_code == 0 and self.reports_dir and self.reports_dir.exists():
-            if (stats := self._parse_garak_reports()) is not None:
-                score = stats.get("score", "N/A")
-                success_rate = stats.get("success_rate", "N/A")
-            else:
-                score = "Error"
-                success_rate = "Error"
-
-            # Return history entry
-            return {
-                "timestamp": self.started_at,
-                "probe_type": self.probe_type,
-                "guardrails": "Yes" if self.use_guardrails else "No",
-                "score": score,
-                "success_rate": success_rate,
-                "duration": f"{self.elapsed_time:.1f}s",
-            }
+            return self._parse_garak_reports()
 
         return None
 
