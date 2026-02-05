@@ -10,56 +10,63 @@ def create_app():
 
     with gr.Blocks(title="Railyard") as app:
         gr.Markdown("# 🛤️ Railyard")
+        gr.Markdown("""
+        **Welcome to Railyard** - a simple guardrails playground.
+        
+        Railyard helps you:
+        - **Configure & test** [Nemo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) for your AI models
+        - **Run security probes** using [Garak](https://github.com/NVIDIA/Garak) to identify vulnerabilities  
+        - **Benchmark performance** via [GuideLLM](https://github.com/vllm-project/GuideLLM) to measure system throughput
+        - **Compare results** between protected and unprotected model interactions
+        """)
 
         with gr.Tabs():
             # Purple Section - Chat and Config
             with gr.Tab("🟣 Configure & Chat") as purple_tab:
-                with gr.Row():
-                    with gr.Column(scale=2):
-                        gr.Markdown("### Configuration")
-                        with gr.Tabs() as config_tabs:
-                            with gr.Tab("Config"):
-                                config_editor = gr.Code(
-                                    value=playground.current_config.config_yaml_file_contents,
-                                    language="yaml",
-                                    label="config.yaml",
-                                    lines=25,
-                                    max_lines=25,
-                                )
-
-                            with gr.Tab("Rails"):
-                                rails_editor = gr.Code(
-                                    value=playground.current_config.rails_co_file_contents,
-                                    label="rails.co",
-                                    lines=25,
-                                    max_lines=25,
-                                )
-
-                            with gr.Tab("Actions"):
-                                actions_editor = gr.Code(
-                                    value=playground.current_config.actions_py_file_contents,
-                                    language="python",
-                                    label="actions.py",
-                                    lines=25,
-                                    max_lines=25,
-                                )
-
-                        update_config_btn = gr.Button(
-                            "Update Configuration", variant="primary"
+                gr.Markdown("### Configuration")
+                gr.Markdown("Configure Nemo Guardrails by editing the following files:")
+                with gr.Tabs() as config_tabs:
+                    with gr.Tab("Config"):
+                        config_editor = gr.Code(
+                            value=playground.current_config.config_yaml_file_contents,
+                            language="yaml",
+                            label="config.yaml",
+                            lines=15,
+                            max_lines=15,
                         )
 
-                    with gr.Column(scale=1):
-                        gr.Markdown("### Chat with AI")
+                    with gr.Tab("Rails"):
+                        rails_editor = gr.Code(
+                            value=playground.current_config.rails_co_file_contents,
+                            label="rails.co",
+                            lines=15,
+                            max_lines=15,
+                        )
 
-                        enable_guardrails = gr.Checkbox(
-                            label="Enable Guardrails",
-                            value=True,
+                    with gr.Tab("Actions"):
+                        actions_editor = gr.Code(
+                            value=playground.current_config.actions_py_file_contents,
+                            language="python",
+                            label="actions.py",
+                            lines=15,
+                            max_lines=15,
                         )
-                        chatbot = gr.Chatbot(label="AI Assistant")
-                        msg_input = gr.Textbox(
-                            label="Message", placeholder="Type your message..."
-                        )
-                        send_btn = gr.Button("Send", variant="primary")
+
+                update_config_btn = gr.Button("Update Configuration", variant="primary")
+
+                gr.Markdown("### Chat")
+                gr.Markdown(
+                    "Quickly test your configuration by chatting with the model."
+                )
+                enable_guardrails = gr.Checkbox(
+                    label="Enable Guardrails",
+                    value=True,
+                )
+                chatbot = gr.Chatbot(label="AI Assistant")
+                msg_input = gr.Textbox(
+                    label="Message", placeholder="Type your message..."
+                )
+                send_btn = gr.Button("Send", variant="primary")
 
                 # Event handlers for purple section
                 def handle_chat(message, history, enable_guardrails):
