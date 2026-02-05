@@ -355,6 +355,7 @@ define flow check prompt injection
 
     def start_guidellm_job(
         self,
+        *,
         benchmark_profile: str,
         max_seconds: int = 60,
         warmup_seconds: int = 10,

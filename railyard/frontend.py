@@ -383,16 +383,6 @@ def create_app():
                         info="Number of parallel users",
                     )
 
-                with gr.Row():
-                    max_errors = gr.Slider(
-                        minimum=1,
-                        maximum=20,
-                        value=5,
-                        step=1,
-                        label="Max Errors",
-                        info="Stop benchmark after this many errors",
-                    )
-
                 start_benchmark_btn = gr.Button(
                     "📊 Start Performance Benchmark", variant="primary"
                 )
@@ -404,12 +394,17 @@ def create_app():
                 )
 
                 def handle_start_benchmark_streaming(
-                    profile, max_sec, warmup_sec, req_rate, users, errors
+                    profile, max_sec, warmup_sec, req_rate, users
                 ):
                     """Stream benchmark output in real-time"""
                     # Start the job first
                     job = playground.start_guidellm_job(
-                        profile, max_sec, warmup_sec, req_rate, users, errors
+                        benchmark_profile=profile,
+                        max_seconds=max_sec,
+                        warmup_seconds=warmup_sec,
+                        rate=req_rate,
+                        concurrent_users=users,
+                        max_errors=5,
                     )
 
                     # Clear status and update info to show job starting
@@ -481,7 +476,6 @@ def create_app():
                         warmup_seconds,
                         rate,
                         concurrent_users,
-                        max_errors,
                     ],
                     [benchmark_status_display],
                 )
