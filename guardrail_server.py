@@ -1,17 +1,6 @@
 """
 Toy server to classify text for prompt injection.
 
-Usage:
-  guardrail-server.py [--model MODEL_NAME] [--host HOST] [--port PORT]
-  guardrail-server.py (-h | --help)
-
-Options:
-  --model MODEL_NAME  Hugging Face model name.
-                      [default: protectai/deberta-v3-base-prompt-injection-v2]
-  --host HOST         Host to bind the server. [default: 0.0.0.0]
-  --port PORT         Port to bind the server. [default: 8000]
-  -h --help           Show this screen.
-
 Examples:
   $ python guardrail-server.py
   $ python guardrail-server.py --model protectai/deberta-v3-base-prompt-injection-v2
@@ -38,10 +27,10 @@ Test:
 
 from contextlib import asynccontextmanager
 
+import click
 import loguru
 import torch
 import uvicorn
-from docopt import docopt
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from transformers import AutoModelForSequenceClassification, AutoTokenizer, pipeline
@@ -115,11 +104,18 @@ def create_app(model_name: str) -> FastAPI:
     return app
 
 
-def main() -> None:
-    args = docopt(__doc__)
-    app = create_app(args["--model"])
-    loguru.logger.info(f"Starting classifier with model: {args['--model']}")
-    uvicorn.run(app, host=args["--host"], port=int(args["--port"]))
+@click.command()
+@click.option(
+    "--model",
+    default="protectai/deberta-v3-base-prompt-injection-v2",
+    help="Hugging Face model name.",
+)
+@click.option("--host", default="0.0.0.0", help="Host to bind the server.")
+@click.option("--port", default=8000, help="Port to bind the server.")
+def main(model: str, host: str, port: int) -> None:
+    app = create_app(model)
+    loguru.logger.info(f"Starting classifier with model: {model}")
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":
