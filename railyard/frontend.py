@@ -54,7 +54,6 @@ def create_app():
                         enable_guardrails = gr.Checkbox(
                             label="Enable Guardrails",
                             value=True,
-                            info="Toggle to enable/disable guardrail protection",
                         )
                         chatbot = gr.Chatbot(label="AI Assistant")
                         msg_input = gr.Textbox(
@@ -149,6 +148,20 @@ def create_app():
                 )
 
                 with gr.Row():
+                    with gr.Column():
+                        use_guardrails = gr.Radio(
+                            choices=["Hit model directly", "Enable guardrails"],
+                            value="Enable guardrails",
+                            label="Model Access Mode",
+                        )
+                    with gr.Column():
+                        runtime_mode_security = gr.Radio(
+                            choices=["Run locally", "Run in KFP"],
+                            value="Run locally",
+                            label="Scanner Runtime Mode",
+                        )
+
+                with gr.Row():
                     probe_type = gr.Dropdown(
                         choices=[
                             "promptinject.HijackKillHumans",
@@ -160,7 +173,6 @@ def create_app():
                         value="promptinject.HijackKillHumans",
                         label="Probe Type",
                     )
-                    use_guardrails = gr.Checkbox(label="Use Guardrails", value=True)
 
                 with gr.Row():
                     generations = gr.Slider(
@@ -213,13 +225,14 @@ def create_app():
                 def handle_start_probe_streaming(
                     probe_type_val,
                     use_guardrails_val,
+                    runtime_mode_val,
                     generations_val,
                     parallel_attempts_val,
                     prompt_cap_val,
                 ):
                     job = playground.start_garak_job(
                         probe_type_val,
-                        use_guardrails_val,
+                        use_guardrails_val == "Use guardrails",
                         generations_val,
                         parallel_attempts_val,
                         prompt_cap_val,
@@ -228,7 +241,7 @@ def create_app():
                     # Update info to show job starting
                     guardrails_text = (
                         "with guardrails"
-                        if use_guardrails_val
+                        if use_guardrails_val == "Use guardrails"
                         else "without guardrails"
                     )
                     yield (
@@ -300,6 +313,7 @@ def create_app():
                     [
                         probe_type,
                         use_guardrails,
+                        runtime_mode_security,
                         generations,
                         parallel_attempts,
                         prompt_cap,
