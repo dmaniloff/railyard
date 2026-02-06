@@ -31,7 +31,7 @@ jobs:
         # Test that the main app can be imported without errors
         docker run --rm railyard:${{ github.sha }} python -c "from railyard.frontend import create_app; print('App imports successfully')"
 
-    - name: Optional: Push to registry (if needed)
+    - name: Push to registry 
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
         echo "Would push to container registry here"
