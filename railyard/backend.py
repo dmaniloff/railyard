@@ -262,8 +262,6 @@ define flow check prompt injection
 
         # Base command using config file
         cmd = [
-            "uv",
-            "run",
             "dotenv",
             "run",
             "--",
@@ -373,8 +371,6 @@ define flow check prompt injection
 
         # Base command - API key will be loaded from .env via GUIDELLM_BACKEND_KWARGS
         cmd = [
-            "uv",
-            "run",
             "dotenv",
             "run",
             "--",
