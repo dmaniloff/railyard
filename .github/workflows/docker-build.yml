@@ -31,10 +31,19 @@ jobs:
         # Test that the main app can be imported without errors
         docker run --rm railyard:${{ github.sha }} python -c "from railyard.frontend import create_app; print('App imports successfully')"
 
-    - name: Push to registry 
+    - name: Login to Quay.io
+      if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+      uses: docker/login-action@v3
+      with:
+        registry: quay.io
+        username: ${{ secrets.QUAY_USERNAME }}
+        password: ${{ secrets.QUAY_PASSWORD }}
+
+    - name: Push to Quay.io
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
-        echo "Would push to container registry here"
-        # Add your registry push commands here if needed
-        # docker tag railyard:${{ github.sha }} your-registry/railyard:latest
-        # docker push your-registry/railyard:latest
+        # Tag and push to quay.io
+        docker tag railyard:${{ github.sha }} quay.io/${{ secrets.QUAY_USERNAME }}/railyard:${{ github.sha }}
+        docker tag railyard:${{ github.sha }} quay.io/${{ secrets.QUAY_USERNAME }}/railyard:latest
+        docker push quay.io/${{ secrets.QUAY_USERNAME }}/railyard:${{ github.sha }}
+        docker push quay.io/${{ secrets.QUAY_USERNAME }}/railyard:latest
