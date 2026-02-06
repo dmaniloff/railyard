@@ -43,7 +43,7 @@ jobs:
       if: github.ref == 'refs/heads/main' && github.event_name == 'push'
       run: |
         # Tag and push to quay.io
-        docker tag railyard:${{ github.sha }} quay.io/${{ secrets.QUAY_USERNAME }}/railyard:${{ github.sha }}
-        docker tag railyard:${{ github.sha }} quay.io/${{ secrets.QUAY_USERNAME }}/railyard:latest
-        docker push quay.io/${{ secrets.QUAY_USERNAME }}/railyard:${{ github.sha }}
-        docker push quay.io/${{ secrets.QUAY_USERNAME }}/railyard:latest
+        docker tag railyard:${{ github.sha }} quay.io/diegosquayorg/railyard:${{ github.sha }}
+        docker tag railyard:${{ github.sha }} quay.io/diegosquayorg/railyard:latest
+        docker push quay.io/diegosquayorg/railyard:${{ github.sha }}
+        docker push quay.io/diegosquayorg/railyard:latest

@@ -10,7 +10,8 @@ RUN pip install --break-system-packages \
     "gradio>=5.0.0" \
     "guidellm>=0.5.3" \
     "nemoguardrails>=0.20.0" \
-    "openai>=1.45.0,<2"
+    "openai>=1.45.0,<2" \
+    "python-dotenv[cli]"
 
 COPY railyard/ railyard/
 COPY app.py .
