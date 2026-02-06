@@ -703,8 +703,6 @@ name = "demo-fsi-bootcamp-toronto"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
-    { name = "click" },
-    { name = "docopt" },
     { name = "dotenv" },
     { name = "fastapi" },
     { name = "garak" },
@@ -713,18 +711,22 @@ dependencies = [
     { name = "loguru" },
     { name = "nemoguardrails" },
     { name = "openai" },
-    { name = "transformers" },
 ]
 
 [package.optional-dependencies]
 dev = [
     { name = "ruff" },
 ]
+guardrail-server = [
+    { name = "click" },
+    { name = "torch" },
+    { name = "transformers" },
+    { name = "uvicorn" },
+]
 
 [package.metadata]
 requires-dist = [
-    { name = "click", specifier = ">=8.3.1" },
-    { name = "docopt", specifier = ">=0.6.2" },
+    { name = "click", marker = "extra == 'guardrail-server'", specifier = ">=8.3.1" },
     { name = "dotenv", specifier = ">=0.9.9" },
     { name = "fastapi", specifier = ">=0.128.0" },
     { name = "garak", specifier = "==0.13.3" },
@@ -734,9 +736,11 @@ requires-dist = [
     { name = "nemoguardrails", specifier = ">=0.20.0" },
     { name = "openai", specifier = ">=1.45.0,<2" },
     { name = "ruff", marker = "extra == 'dev'" },
-    { name = "transformers", specifier = ">=4.56.2" },
+    { name = "torch", marker = "extra == 'guardrail-server'" },
+    { name = "transformers", marker = "extra == 'guardrail-server'", specifier = ">=4.56.2" },
+    { name = "uvicorn", marker = "extra == 'guardrail-server'" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "guardrail-server"]
 
 [[package]]
 name = "dill"
@@ -755,12 +759,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/fc/f8/98eea607f65de6527
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2", size = 20277, upload-time = "2023-12-24T09:54:30.421Z" },
 ]
-
-[[package]]
-name = "docopt"
-version = "0.6.2"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/a2/55/8f8cab2afd404cf578136ef2cc5dfb50baa1761b68c9da1fb1e4eed343c9/docopt-0.6.2.tar.gz", hash = "sha256:49b3a825280bd66b3aa83585ef59c4a8c82f2c8a522dbe754a8bc8d08c85c491", size = 25901, upload-time = "2014-06-16T11:18:57.406Z" }
 
 [[package]]
 name = "dotenv"

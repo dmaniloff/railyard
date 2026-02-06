@@ -1,0 +1,11 @@
+.git
+.venv
+.mypy_cache
+**/*.pyc
+**/__pycache__
+.DS_Store
+nemo-config
+garak-config
+README.md
+uv.lock
+*.md
