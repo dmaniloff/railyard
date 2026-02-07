@@ -1,4 +1,11 @@
 # 🛤️ Railyard
+**Welcome to Railyard** - a simple guardrails playground.
+        
+Railyard helps you:
+- **Configure & test** [Nemo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) for your AI models
+- **Run security probes** using [Garak](https://github.com/NVIDIA/Garak) to identify vulnerabilities  
+- **Benchmark performance** via [GuideLLM](https://github.com/vllm-project/GuideLLM) to measure system throughput
+- **Compare results** between protected and unprotected model interactions
 
 ## Setup
 

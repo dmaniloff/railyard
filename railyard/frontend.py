@@ -10,17 +10,31 @@ def create_app():
 
     with gr.Blocks(title="Railyard") as app:
         gr.Markdown("# 🛤️ Railyard")
-        gr.Markdown("""
-        **Welcome to Railyard** - a simple guardrails playground.
-        
-        Railyard helps you:
-        - **Configure & test** [Nemo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) for your AI models
-        - **Run security probes** using [Garak](https://github.com/NVIDIA/Garak) to identify vulnerabilities  
-        - **Benchmark performance** via [GuideLLM](https://github.com/vllm-project/GuideLLM) to measure system throughput
-        - **Compare results** between protected and unprotected model interactions
-        """)
 
         with gr.Tabs():
+            # Welcome Tab
+            with gr.Tab("📖 Welcome"):
+                gr.Markdown("""
+                ## Welcome to Railyard
+                **Railyard** is a simple guardrails playground for testing and evaluating AI model safety.
+                
+                ### What Railyard helps you do:
+                - **Configure & test** [Nemo Guardrails](https://github.com/NVIDIA/NeMo-Guardrails) for your AI models
+                - **Run security probes** using [Garak](https://github.com/NVIDIA/Garak) to identify vulnerabilities  
+                - **Benchmark performance** via [GuideLLM](https://github.com/vllm-project/GuideLLM) to measure system throughput
+                - **Compare results** between protected and unprotected model interactions
+                
+                ### How to use this app:
+                
+                1. **🟣 Configure & Chat**: Start by configuring your guardrails in the config files (config.yaml, rails.co, actions.py). Then test your setup by chatting with the model to see how guardrails affect responses.
+                
+                2. **🔴 Security Testing**: Run automated security probes to test how well your guardrails defend against various attack patterns like prompt injection, jailbreaking, and data leakage attempts.
+                
+                3. **🔵 Performance Testing**: Measure the impact of guardrails on your model's performance with comprehensive benchmarking that tests throughput, latency, and concurrent user handling.
+                
+                ### Getting Started:
+                Navigate to the **Configure & Chat** tab to begin setting up your guardrails configuration and testing basic interactions.
+                """)
             # Purple Section - Chat and Config
             with gr.Tab("🟣 Configure & Chat") as purple_tab:
                 gr.Markdown("### Configuration")
