@@ -21,10 +21,52 @@ Install dependencies.
 uv sync
 ```
 
-## Start Railyard
+## Start Railyard locally
 
 ```bash
 uv run dotenv run python railyard_server.py # or uv run dotenv run gradio railyard_server.py
+```
+
+## Kubernetes Deployment
+
+Deploy Railyard to a Kubernetes cluster.
+
+### Prerequisites
+
+- `kubectl` configured to access your cluster
+- Railyard container image: `quay.io/diegosquayorg/railyard:latest` (see Dockerfile for details)
+
+### Setup Environment Variables
+
+Create a `.env` file with the following environment variables:
+
+```bash
+# LittleLM configuration (for main model)
+LITELLM_API_KEY=your-api-key
+LITELLM_API_URL=your-api-base-url
+
+# OpenAI Compatible API key (for Garak probes)
+OPENAICOMPATIBLE_API_KEY=$LITELLM_API_KEY
+
+# GuideLLM configuration (for performance benchmarks)
+GUIDELLM_BACKEND_KWARGS={"api_key":"${LITELLM_API_KEY}"}
+
+# Railyard authentication credentials
+RAILYARD_USER=your-username
+RAILYARD_PASS=your-password
+```
+### Deploy to Kubernetes
+
+1. Create a secret from your environment file:
+
+```bash
+kubectl create secret generic railyard-env --from-env-file=.env
+```
+
+2. Apply the deployment manifest:
+
+```bash
+kubectl apply -f k8s-deployment.yaml
 ```
 
 ## Test the Railyard commands manually
@@ -65,4 +107,3 @@ uv run dotenv run garak \
   --target_name nemo-config \
   --probes promptinject.HijackKillHumans
 ```
-
