@@ -262,9 +262,6 @@ define flow check prompt injection
 
         # Base command using config file
         cmd = [
-            "dotenv",
-            "run",
-            "--",
             "garak",
             "--config",
             str(garak_config_path),
@@ -369,11 +366,8 @@ define flow check prompt injection
         api_base = model_config.parameters.openai_api_base
         model_name = model_config.parameters.model_name
 
-        # Base command - API key will be loaded from .env via GUIDELLM_BACKEND_KWARGS
+        # Base command - API key will be loaded from environment via GUIDELLM_BACKEND_KWARGS
         cmd = [
-            "dotenv",
-            "run",
-            "--",
             "guidellm",
             "benchmark",
             "run",
