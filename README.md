@@ -1,3 +1,12 @@
+---
+title: Railyard
+emoji: 🛤️
+colorFrom: purple
+colorTo: gray
+sdk: docker
+app_port: 7860
+---
+
 # 🛤️ Railyard
 **Welcome to Railyard** - a simple guardrails playground.
         
@@ -79,8 +88,8 @@ Ensure `.env` contains `OPENAICOMPATIBLE_API_KEY=<your-api-key>`, then run:
 uv run dotenv run garak \
   --config garak-config/config.yaml \
   --target_type openai.OpenAICompatible \
-  --target_name Mistral-Small-24B-W8A8 \
-  --generator_options '{"openai": {"OpenAICompatible": {"uri": "<your-api-base-url>", "model": "Mistral-Small-24B-W8A8"}}}' \
+  --target_name <your-model-name> \
+  --generator_options '{"openai": {"OpenAICompatible": {"uri": "<your-api-base-url>", "model": "<your-model-name>"}}}' \
   --probes promptinject.HijackKillHumans 
 ```
 
